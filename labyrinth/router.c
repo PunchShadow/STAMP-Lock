@@ -368,7 +368,7 @@ router_solve (void* argPtr)
     assert(myGridPtr);
     long bendCost = routerPtr->bendCost;
     queue_t* myExpansionQueuePtr = PQUEUE_ALLOC(-1);
-
+    int count;
     /*
      * Iterate over work list to route each path. This involves an
      * 'expansion' and 'traceback' phase for each source/destination pair.
@@ -386,7 +386,7 @@ router_solve (void* argPtr)
         if (coordinatePairPtr == NULL) {
             break;
         }
-
+        count++;
         coordinate_t* srcPtr = coordinatePairPtr->firstPtr;
         coordinate_t* dstPtr = coordinatePairPtr->secondPtr;
 
@@ -433,7 +433,7 @@ router_solve (void* argPtr)
     puts("\nFinal Grid:");
     grid_print(gridPtr);
 #endif /* DEBUG */
-
+    // printf("count:%d\n", count);
     TM_THREAD_EXIT();
 }
 

@@ -192,9 +192,9 @@ processPackets (void* argPtr)
     PDETECTOR_ADDPREPROCESSOR(detectorPtr, &preprocessor_toLower);
 
     vector_t* errorVectorPtr = errorVectors[threadId];
-
+    long long int count = 0;
     while (1) {
-
+        count++;
         char* bytes;
         TM_BEGIN();
         bytes = TMSTREAM_GETPACKET(streamPtr);
@@ -239,7 +239,7 @@ processPackets (void* argPtr)
     }
 
     PDETECTOR_FREE(detectorPtr);
-
+    printf("[%lu] counter:%lld\n",pthread_self(), count);
     TM_THREAD_EXIT();
 }
 

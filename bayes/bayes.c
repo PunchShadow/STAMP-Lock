@@ -79,6 +79,8 @@
 #include "tm.h"
 #include "types.h"
 
+extern int makeNodeNum;
+
 enum param_types {
     PARAM_EDGE    = (unsigned char)'e',
     PARAM_INSERT  = (unsigned char)'i',
@@ -107,6 +109,20 @@ long global_params[256]; /* 256 = ascii limit */
 long global_maxNumEdgeLearned = PARAM_DEFAULT_EDGE;
 long global_insertPenalty = PARAM_DEFAULT_INSERT;
 float global_operationQualityFactor = PARAM_DEFAULT_QUALITY;
+
+#if defined(SPINLOCK)
+
+pthread_spinlock_t  lock_task_list;
+pthread_spinlock_t  lock_netPtr;
+pthread_spinlock_t  lock_learnerPtr;
+
+#elif defined(MUTEXLOCK)
+pthread_mutex_t  lock_task_list;
+pthread_mutex_t  lock_netPtr;
+pthread_mutex_t  lock_learnerPtr;
+
+#endif /* LOCK-based */
+
 
 
 /* =============================================================================
@@ -277,6 +293,21 @@ MAIN(argc, argv)
     puts("done.");
     fflush(stdout);
 
+
+#   if defined(SPINLOCK)
+    pthread_spin_init(&lock_task_list, 0);
+    pthread_spin_init(&lock_netPtr, 0);
+    pthread_spin_init(&lock_learnerPtr, 0);
+
+#   elif defined(MUTEXLOCK)
+    pthread_spin_init(&lock_task_list, NULL);
+    pthread_spin_init(&lock_netPtr, NULL);
+    pthread_spin_init(&lock_learnerPtr, NULL);
+
+#   endif /* LOCK-based */
+
+
+
     /*
      * Generate adtree
      */
@@ -297,8 +328,8 @@ MAIN(argc, argv)
 
     puts("done.");
     fflush(stdout);
-    printf("Adtree time = %f\n",
-           TIMER_DIFF_SECONDS(adtreeStartTime, adtreeStopTime));
+    printf("Adtree time = %f, makeNodeTimes = %d\n",
+           TIMER_DIFF_SECONDS(adtreeStartTime, adtreeStopTime), makeNodeNum);
     fflush(stdout);
 
     /*
@@ -367,6 +398,21 @@ MAIN(argc, argv)
     GOTO_SIM();
 
     thread_shutdown();
+
+    /* Lock destory */
+#if defined(SPINLOCK)
+    pthread_spin_destroy(&lock_task_list);
+    pthread_spin_destroy(&lock_netPtr);
+    pthread_spin_destroy(&lock_learnerPtr);
+
+#elif defined(MUTEXLOCK)
+    pthread_mutex_destroy(&lock_task_list);
+    pthread_mutex_destroy(&lock_netPtr);
+    pthread_mutex_destroy(&lock_learnerPtr);
+
+#endif /* LOCK-based */
+
+
 
     MAIN_RETURN(0);
 }

@@ -95,6 +95,8 @@
 #include "tm.h"
 #include "util.h"
 
+extern int global_record[32];
+
 double global_time = 0.0;
 
 typedef struct args {
@@ -139,10 +141,12 @@ work (void* argPtr)
     int start;
     int stop;
     int myId;
+    int g_r = 0;
+    int num_euc = 0;
 
     myId = thread_getId();
-
     start = myId * CHUNK;
+    // printf("%d: start: %d\n", myId, start);
 
     while (start < npoints) {
         stop = (((start + CHUNK) < npoints) ? (start + CHUNK) : npoints);
@@ -151,7 +155,8 @@ work (void* argPtr)
             index = common_findNearestPoint(feature[i],
                                             nfeatures,
                                             clusters,
-                                            nclusters);
+                                            nclusters,
+                                            &num_euc);
             /*
              * If membership changes, increase delta by 1.
              * membership[i] cannot be changed by other threads
@@ -175,6 +180,8 @@ work (void* argPtr)
                 );
             }
             TM_END();
+            global_record[myId] += num_euc;
+            num_euc = 0;
         }
 
         /* Update task queue */
@@ -186,12 +193,13 @@ work (void* argPtr)
         } else {
             break;
         }
+
     }
 
     TM_BEGIN();
     TM_SHARED_WRITE_F(global_delta, TM_SHARED_READ_F(global_delta) + delta);
     TM_END();
-
+    
     TM_THREAD_EXIT();
 }
 

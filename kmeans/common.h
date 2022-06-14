@@ -90,7 +90,8 @@ int
 common_findNearestPoint (float*  pt,        /* [nfeatures] */
                          int     nfeatures,
                          float** pts,       /* [npts][nfeatures] */
-                         int     npts);
+                         int     npts,
+                         int*    ecu_num);
 
 
 #endif /* COMMON_H */

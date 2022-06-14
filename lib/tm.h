@@ -352,10 +352,10 @@
 
 #  else /* !OTM */
 
-#    define TM_ARG                        STM_SELF,
-#    define TM_ARG_ALONE                  STM_SELF
-#    define TM_ARGDECL                    STM_THREAD_T* TM_ARG
-#    define TM_ARGDECL_ALONE              STM_THREAD_T* TM_ARG_ALONE
+#    define TM_ARG                        /* nothing */
+#    define TM_ARG_ALONE                  /* nothing */
+#    define TM_ARGDECL                    /* nothing */
+#    define TM_ARGDECL_ALONE              /* nothing */
 #    define TM_CALLABLE                   /* nothing */
 
 #endif /* !OTM */
@@ -417,17 +417,36 @@
 
 #    else /* !OTM */
 
-#      define TM_STARTUP(numThread)     STM_STARTUP()
-#      define TM_SHUTDOWN()             STM_SHUTDOWN()
+#      include <mod_mem.h>
+#      include <mod_stats.h>
 
-#      define TM_THREAD_ENTER()         TM_ARGDECL_ALONE = STM_NEW_THREAD(); \
-                                        STM_INIT_THREAD(TM_ARG_ALONE, thread_getId())
-#      define TM_THREAD_EXIT()          STM_FREE_THREAD(TM_ARG_ALONE)
+#      define TM_STARTUP(numThread)     if (sizeof(long) != sizeof(void *)) { \
+                                          fprintf(stderr, "Error: unsupported long and pointer sizes\n"); \
+                                          exit(1); \
+                                        } \
+                                        stm_init(); \
+                                        mod_mem_init(0); \
+                                        if (getenv("STM_STATS") != NULL) { \
+                                          mod_stats_init(); \
+                                        }
+#      define TM_SHUTDOWN()             if (getenv("STM_STATS") != NULL) { \
+                                          unsigned long u; \
+                                          if (stm_get_global_stats("global_nb_commits", &u) != 0) \
+                                            printf("#commits    : %lu\n", u); \
+                                          if (stm_get_global_stats("global_nb_aborts", &u) != 0) \
+                                            printf("#aborts     : %lu\n", u); \
+                                          if (stm_get_global_stats("global_max_retries", &u) != 0) \
+                                            printf("Max retries : %lu\n", u); \
+                                        } \
+                                        stm_exit()
+
+#      define TM_THREAD_ENTER()         stm_init_thread()
+#      define TM_THREAD_EXIT()          stm_exit_thread()
 
 #      define P_MALLOC(size)            malloc(size)
 #      define P_FREE(ptr)               free(ptr)
-#      define TM_MALLOC(size)           STM_MALLOC(size)
-#      define TM_FREE(ptr)              STM_FREE(ptr)
+#      define TM_MALLOC(size)           stm_malloc(size)
+#      define TM_FREE(ptr)              stm_free(ptr, sizeof(stm_word_t))
 
 #    endif /* !OTM */
 
@@ -444,10 +463,15 @@
 
 #  else /* !OTM */
 
-#    define TM_BEGIN()                  STM_BEGIN_WR()
-#    define TM_BEGIN_RO()               STM_BEGIN_RD()
-#    define TM_END()                    STM_END()
-#    define TM_RESTART()                STM_RESTART()
+#    define TM_START(ro)                do { \
+                                            stm_tx_attr_t _a = {{.read_only = ro}}; \
+                                            sigjmp_buf *_e = stm_start(_a, __COUNTER__); \
+                                            if (_e != NULL) sigsetjmp(*_e, 0); \
+                                        } while (0)
+#    define TM_BEGIN()                  TM_START(0)
+#    define TM_BEGIN_RO()               TM_START(1)
+#    define TM_END()                    stm_commit()
+#    define TM_RESTART()                stm_abort(0)
 
 #    define TM_EARLY_RELEASE(var)       /* nothing */
 
@@ -493,9 +517,23 @@
 
 #  endif /* !SIMULATOR */
 
-#  define TM_BEGIN()                    /* nothing */
-#  define TM_BEGIN_RO()                 /* nothing */
-#  define TM_END()                      /* nothing */
+#if defined(SPINLOCK)
+
+#include <pthread.h>
+
+#  define TM_BEGIN(lock)                 pthread_spin_lock(lock)
+#  define TM_BEGIN_RO(lock)              pthread_spin_lock(lock)
+#  define TM_END(lock)                   pthread_spin_unlock(lock)
+
+
+#elif defined(MUTEXLOCK)
+
+#  define TM_BEGIN(lock)                 pthread_mutex_lock(lock)
+#  define TM_BEGIN_RO(lock)              pthread_mutex_lock(lock)
+#  define TM_END(lock)                   pthread_mutex_unlock(lock)
+
+#endif /* SPINLOCK / MUTEX*/
+
 #  define TM_RESTART()                  assert(0)
 
 #  define TM_EARLY_RELEASE(var)         /* nothing */
@@ -531,17 +569,21 @@
 
 #else /* OTM */
 
-#  define TM_SHARED_READ(var)           STM_READ(var)
-#  define TM_SHARED_READ_P(var)         STM_READ_P(var)
-#  define TM_SHARED_READ_F(var)         STM_READ_F(var)
+#  include <wrappers.h>
 
-#  define TM_SHARED_WRITE(var, val)     STM_WRITE((var), val)
-#  define TM_SHARED_WRITE_P(var, val)   STM_WRITE_P((var), val)
-#  define TM_SHARED_WRITE_F(var, val)   STM_WRITE_F((var), val)
+/* We could also map macros to the stm_(load|store)_long functions if needed */
 
-#  define TM_LOCAL_WRITE(var, val)      STM_LOCAL_WRITE(var, val)
-#  define TM_LOCAL_WRITE_P(var, val)    STM_LOCAL_WRITE_P(var, val)
-#  define TM_LOCAL_WRITE_F(var, val)    STM_LOCAL_WRITE_F(var, val)
+#  define TM_SHARED_READ(var)           stm_load((volatile stm_word_t *)(void *)&(var))
+#  define TM_SHARED_READ_P(var)         stm_load_ptr((volatile void **)(void *)&(var))
+#  define TM_SHARED_READ_F(var)         stm_load_float((volatile float *)(void *)&(var))
+
+#  define TM_SHARED_WRITE(var, val)     stm_store((volatile stm_word_t *)(void *)&(var), (stm_word_t)val)
+#  define TM_SHARED_WRITE_P(var, val)   stm_store_ptr((volatile void **)(void *)&(var), val)
+#  define TM_SHARED_WRITE_F(var, val)   stm_store_float((volatile float *)(void *)&(var), val)
+
+#  define TM_LOCAL_WRITE(var, val)      ({var = val; var;})
+#  define TM_LOCAL_WRITE_P(var, val)    ({var = val; var;})
+#  define TM_LOCAL_WRITE_F(var, val)    ({var = val; var;})
 
 #endif /* !OTM */
 
@@ -558,6 +600,8 @@
 #  define TM_LOCAL_WRITE(var, val)      ({var = val; var;})
 #  define TM_LOCAL_WRITE_P(var, val)    ({var = val; var;})
 #  define TM_LOCAL_WRITE_F(var, val)    ({var = val; var;})
+
+
 
 #endif /* !STM */
 
